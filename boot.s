@@ -20,12 +20,12 @@ _start:
     dsb sy                   // Ensure write completes
 
     // Print our string from .rodata
-    ldr x1, =hello_msg        // Get address of string
+    adr x1, hello_msg        // Get address of string
     bl uart_puts             // Call string output routine
     
     // Print another newline
-    mov w2, #10
-    bl uart_putc
+    // mov w2, #10
+    // bl uart_putc
 
     bl kernel_main
 
