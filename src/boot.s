@@ -27,6 +27,9 @@ _start:
     adr x0, boot_msg
     bl uart_puts
 
+    // trigger an exception to test the vector table
+    // svc #0
+
     // 5. Jump to kernel_main in C
     bl kernel_main
 

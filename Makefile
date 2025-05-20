@@ -8,13 +8,13 @@ QEMU = qemu-system-aarch64
 # Directories
 SRC_DIR = src
 INCLUDE_DIR = include
-BUILD_DIR = build # Optional: for object files
 
 # Source files
 BOOT_S_SRC = $(SRC_DIR)/boot.s
 VECTORS_S_SRC = $(SRC_DIR)/vectors.s
-UART_S_SRC = $(SRC_DIR)/uart.s # New UART assembly source
+UART_S_SRC = $(SRC_DIR)/uart.s
 KERNEL_C_SRC = $(SRC_DIR)/kernel.c
+EXCEPTIONS_C_SRC = $(SRC_DIR)/exceptions.c # New C source for exceptions
 
 # Object files (consider putting them in BUILD_DIR)
 # For simplicity, let's keep them in root for now, or use $(BUILD_DIR)/
@@ -22,8 +22,9 @@ BOOT_S_OBJ = boot.o # $(BOOT_S_SRC:.s=.o) would be src/boot.o
 VECTORS_S_OBJ = vectors.o
 UART_S_OBJ = uart.o
 KERNEL_C_OBJ = kernel.o
+EXCEPTIONS_C_OBJ = exceptions.o # New object file
 
-OBJS = $(BOOT_S_OBJ) $(VECTORS_S_OBJ) $(UART_S_OBJ) $(KERNEL_C_OBJ)
+OBJS = $(BOOT_S_OBJ) $(VECTORS_S_OBJ) $(UART_S_OBJ) $(KERNEL_C_OBJ) $(EXCEPTIONS_C_OBJ) # Add new obj
 
 # Output files
 ELF = boot.elf
@@ -50,6 +51,9 @@ $(UART_S_OBJ): $(UART_S_SRC)
 $(KERNEL_C_OBJ): $(KERNEL_C_SRC)
 	$(CC) $(CFLAGS) -o $@ $<
 
+$(EXCEPTIONS_C_OBJ): $(EXCEPTIONS_C_SRC) $(INCLUDE_DIR)/exceptions.h $(INCLUDE_DIR)/uart.h $(INCLUDE_DIR)/kernel.h
+	$(CC) $(CFLAGS) -o $@ $<
+
 # Link to ELF using linker script
 $(ELF): $(OBJS) $(LINKER_SCRIPT)
 	$(LD) -o $@ -T $(LINKER_SCRIPT) $(OBJS)
@@ -64,4 +68,4 @@ run: $(ELF)
 
 # Clean build artifacts
 clean:
-	rm -f *.o $(ELF) $(BIN) uart.log # Also clean $(BUILD_DIR)/*.o if using BUILD_DIR
+	rm -f *.o $(ELF) $(BIN) uart.log $(EXCEPTIONS_C_OBJ)
