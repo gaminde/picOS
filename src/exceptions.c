@@ -65,3 +65,20 @@ void c_sync_handler(trap_frame_t *frame) {
     uart_puts("Halting in C handler.\n");
     while (1);
 }
+
+void c_irq_handler(trap_frame_t *frame) {
+    // Suppress unused parameter warning for now, as frame isn't used yet.
+    (void)frame;
+
+    uart_puts("C IRQ Handler Reached!\n");
+    // In a real IRQ handler, you would:
+    // 1. Identify the source of the interrupt (e.g., by reading GIC's IAR).
+    // 2. Handle the interrupt (e.g., service the timer, process device input).
+    // 3. Acknowledge the interrupt (e.g., by writing to GIC's EOIR).
+    // For now, since no IRQs are enabled, this code won't be hit unless
+    // something unexpected happens or we explicitly trigger one later for
+    // testing.
+
+    uart_puts("Halting in C IRQ handler (unexpected).\n");
+    while (1);
+}
