@@ -1,31 +1,42 @@
 # Variables
 ASM = aarch64-linux-gnu-as
-CC  = aarch64-linux-gnu-gcc # C compiler
+CC  = aarch64-linux-gnu-gcc
 LD  = aarch64-linux-gnu-ld
 OBJCOPY = aarch64-linux-gnu-objcopy
 QEMU = qemu-system-aarch64
 
-# Files
+# Source files
 BOOT_SRC = boot.s
-KERNEL_C_SRC = kernel.c # C source for kernel
-OBJS = boot.o kernel.o
+VECTORS_SRC = vectors.s
+KERNEL_C_SRC = kernel.c
+
+# Object files
+OBJS = boot.o $(VECTORS_SRC:.s=.o) kernel.o
+
+# Output files
 ELF = boot.elf
 BIN = boot.bin
 LINKER_SCRIPT = linker.ld
 
 # CFLAGS for kernel compilation
 CFLAGS = -c -ffreestanding -nostdlib -g -Wall -Wextra
+# ASFLAGS for assembly compilation
+ASFLAGS = -g
 
 # Default target
 all: $(BIN)
 
 # Build boot.o from assembly
 boot.o: $(BOOT_SRC)
-	$(ASM) -g -o boot.o $(BOOT_SRC)
+	$(ASM) $(ASFLAGS) -o $@ $<
+
+# Build vectors.o from assembly
+$(VECTORS_SRC:.s=.o): $(VECTORS_SRC)
+	$(ASM) $(ASFLAGS) -o $@ $<
 
 # Build kernel.o from C
 kernel.o: $(KERNEL_C_SRC)
-	$(CC) $(CFLAGS) -o kernel.o $(KERNEL_C_SRC)
+	$(CC) $(CFLAGS) -o $@ $<
 
 # Link to ELF using linker script
 $(ELF): $(OBJS) $(LINKER_SCRIPT)
@@ -33,10 +44,10 @@ $(ELF): $(OBJS) $(LINKER_SCRIPT)
 
 # Convert ELF to flat binary
 $(BIN): $(ELF)
-	$(OBJCOPY) -O binary boot.elf boot.bin
+	$(OBJCOPY) -O binary $< $@
 
 # Run in QEMU
-run: $(ELF) # Using ELF with QEMU is often better for debugging
+run: $(ELF)
 	$(QEMU) -machine virt -cpu max -m 64M -nographic -serial file:uart.log -kernel $(ELF)
 
 # Clean build artifacts
