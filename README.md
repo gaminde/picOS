@@ -66,11 +66,12 @@ You should see output from the bootloader and kernel on your terminal.
 *   Further develop IRQ handling.
 *   Basic memory management (paging).
 *   Simple scheduler and process management.
-----------------------------------------------------------------------
 
-My actuall TO-DO list is:
+---
 
--- Unmasking IRQs: Telling the CPU it's okay to be interrupted.
--- Initializing the Generic Interrupt Controller (GIC): The GIC is responsible for managing interrupts from various peripherals and routing them to the CPU.
--- Configuring and Enabling a Timer: We'll use the ARM Generic Timer, which is built into the CPU cores.
--- Updating the C IRQ Handler: To acknowledge the interrupt from the GIC and handle the timer event.
+My actual TO-DO list (for enabling timer interrupts):
+
+- [ ] Unmasking IRQs: Telling the CPU it's okay to be interrupted.
+- [ ] Initializing the Generic Interrupt Controller (GIC): The GIC is responsible for managing interrupts from various peripherals and routing them to the CPU.
+- [ ] Configuring and Enabling a Timer: We'll use the ARM Generic Timer, which is built into the CPU cores.
+- [ ] Updating the C IRQ Handler: To acknowledge the interrupt from the GIC and handle the timer event.
