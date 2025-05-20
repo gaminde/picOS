@@ -1,9 +1,11 @@
 .global _start
 .global kernel_main
+.global uart_puts
+.global uart_putc
+// .global kernel_main
 
 .section .rodata
     hello_msg: .asciz "Hello from Boot.s\n"  // Null-terminated string
-    kernel_msg: .asciz "Hello from Kernel\n"  // Null-terminated string
 
 .text
 _start:
@@ -22,20 +24,11 @@ _start:
     // Print our string from .rodata
     adr x1, hello_msg        // Get address of string
     bl uart_puts             // Call string output routine
-    
-    // Print another newline
-    // mov w2, #10
-    // bl uart_putc
 
     bl kernel_main
 
 end_loop:
     b end_loop
-
-kernel_main:
-    adr x1, kernel_msg       // Get address of string
-    bl uart_puts             // Call string output routine
-    ret           // Infinite loop
 
 // Subroutine to output a string to UART
 // Input: x1 = address of null-terminated string

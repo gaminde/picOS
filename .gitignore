@@ -1,0 +1,12 @@
+# Object files
+*.o
+
+# Executable files
+boot.elf
+boot.bin
+
+# Log files
+uart.log
+
+# Optional: VS Code specific files
+.vscode/

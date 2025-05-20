@@ -5,7 +5,9 @@ OBJCOPY = aarch64-linux-gnu-objcopy
 QEMU = qemu-system-aarch64
 
 # Files
-ASM_SRC = boot.s
+BOOT_SRC = boot.s
+KERNEL_SRC = kernel.s
+OBJS = boot.o kernel.o # Add kernel.o
 ELF = boot.elf
 BIN = boot.bin
 LINKER_SCRIPT = linker.ld
@@ -14,12 +16,15 @@ LINKER_SCRIPT = linker.ld
 all: $(BIN)
 
 # Build the object file from assembly
-boot.o: $(ASM_SRC)
-	$(ASM) -g -o boot.o $(ASM_SRC)
+boot.o: $(BOOT_SRC)
+	$(ASM) -g -o boot.o $(BOOT_SRC)
+
+kernel.o: $(KERNEL_SRC) # Rule to build kernel.o
+	$(ASM) -g -o kernel.o $(KERNEL_SRC)
 
 # Link to ELF using linker script
-$(ELF): boot.o $(LINKER_SCRIPT)
-	$(LD) -o $@ -T $(LINKER_SCRIPT) boot.o
+$(ELF): $(OBJS) $(LINKER_SCRIPT) # Depend on all OBJS
+	$(LD) -o $@ -T $(LINKER_SCRIPT) $(OBJS) # Link all OBJS
 
 # Convert ELF to flat binary, including text and rodata, strip debug
 $(BIN): $(ELF)
@@ -28,7 +33,7 @@ $(BIN): $(ELF)
 
 # Run in QEMU (stop with Ctrl+C)
 run: $(BIN)
-	$(QEMU) -machine virt -cpu max -m 64M -nographic -serial file:uart.log -kernel $(BIN)
+	$(QEMU) -machine virt -cpu max -m 64M -nographic -kernel $(ELF)
 
 # Clean build artifacts
 clean:
