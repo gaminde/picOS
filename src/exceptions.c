@@ -1,6 +1,8 @@
 #include <exceptions.h>
-#include <stdint.h>  // For uint64_t
-#include <uart.h>    // For uart_puts
+#include <gic.h>
+#include <stdint.h>
+#include <timer.h>
+#include <uart.h>
 
 // A helper function to print hex values, useful for debugging
 void print_hex(uint64_t val) {
@@ -17,19 +19,39 @@ void print_hex(uint64_t val) {
     for (i = 60; i >= 0; i -= 4) {
         uint64_t nibble = (val >> i) & 0xF;
         if (nibble != 0 || current_char > 2 ||
-            i == 0) {  // Print leading zeros after first non-zero, or if it's
-                       // the last digit
+            i == 0)  // Print leading zeros after first non-zero, or if it's
+                     // the last digit
             buffer[current_char++] = hex_chars[nibble];
-        }
     }
     buffer[current_char] = '\0';
     uart_puts(buffer);
 }
 
+// Helper function to print an unsigned 64-bit integer in decimal
+// Note: This is a simple implementation. For very large numbers, it might be
+// slow or could overflow the buffer if not careful. Max uint64_t is 20 digits.
+void print_uint(uint64_t val) {
+    char buffer[21];  // Max 20 digits for uint64_t + null terminator
+    int i = 20;
+    buffer[i--] = '\0';
+
+    if (val == 0) {
+        uart_puts("0");
+        return;
+    }
+
+    while (val > 0 && i >= 0) {
+        buffer[i--] = (val % 10) + '0';
+        val /= 10;
+    }
+    uart_puts(&buffer[i + 1]);
+}
+
 void c_sync_handler(trap_frame_t *frame) {
     uint64_t esr_el1;
     // Read ESR_EL1 to find out the cause of the exception
-    asm volatile("mrs %0, esr_el1" : "=r"(esr_el1));
+    // Use __asm__ instead of asm
+    __asm__ volatile("mrs %0, esr_el1" : "=r"(esr_el1));
 
     uart_puts("C Synchronous Handler Reached!\n");
     uart_puts("  SPSR_EL1: ");
@@ -66,19 +88,31 @@ void c_sync_handler(trap_frame_t *frame) {
     while (1);
 }
 
+static volatile uint64_t tick_counter = 0;  // Our new global tick counter
+
 void c_irq_handler(trap_frame_t *frame) {
-    // Suppress unused parameter warning for now, as frame isn't used yet.
     (void)frame;
 
-    uart_puts("C IRQ Handler Reached!\n");
-    // In a real IRQ handler, you would:
-    // 1. Identify the source of the interrupt (e.g., by reading GIC's IAR).
-    // 2. Handle the interrupt (e.g., service the timer, process device input).
-    // 3. Acknowledge the interrupt (e.g., by writing to GIC's EOIR).
-    // For now, since no IRQs are enabled, this code won't be hit unless
-    // something unexpected happens or we explicitly trigger one later for
-    // testing.
+    uint32_t irq_id = gic_read_iar();
 
-    uart_puts("Halting in C IRQ handler (unexpected).\n");
-    while (1);
+    if (irq_id == 1023) {
+        uart_puts("Spurious IRQ received (ID 1023).\n");
+        gic_write_eoir(irq_id);
+        return;
+    }
+
+    if (irq_id == TIMER_IRQ_ID) {
+        handle_timer_irq();
+        tick_counter++;
+        uart_puts("Timer Tick: ");
+        print_uint(tick_counter);
+        uart_puts("\n");
+    } else {
+        uart_puts("Unknown IRQ received! ID: ");
+        print_uint(irq_id);  // Use print_uint for the unknown ID
+        uart_puts("\nHalting.\n");
+        while (1);
+    }
+
+    gic_write_eoir(irq_id);
 }
