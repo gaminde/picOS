@@ -74,6 +74,7 @@ The immediate TO-DO list for enabling timer interrupts is now complete!
 Future major goals include:
 *   Implement basic preemptive multitasking.
 *   Further develop IRQ handling (e.g., for other devices).
+    *   e.g., handling input from the serial port (UART) via interrupts
 *   Basic memory management (paging).
 *   More device drivers.
 
