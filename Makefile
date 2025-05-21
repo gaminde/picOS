@@ -1,83 +1,80 @@
-# Variables
-ASM = aarch64-linux-gnu-as
-CC  = aarch64-linux-gnu-gcc
-LD  = aarch64-linux-gnu-ld
+# Compiler and Toolchain
+CC = aarch64-linux-gnu-gcc
+AS = aarch64-linux-gnu-as
+LD = aarch64-linux-gnu-ld
 OBJCOPY = aarch64-linux-gnu-objcopy
-QEMU = qemu-system-aarch64
+OBJDUMP = aarch64-linux-gnu-objdump
 
 # Directories
 SRC_DIR = src
 INCLUDE_DIR = include
+BUILD_DIR = build
+OBJ_DIR = $(BUILD_DIR)/obj
 
-# Source files
-BOOT_S_SRC = $(SRC_DIR)/boot.s
-VECTORS_S_SRC = $(SRC_DIR)/vectors.s
-UART_S_SRC = $(SRC_DIR)/uart.s
-KERNEL_C_SRC = $(SRC_DIR)/kernel.c
-EXCEPTIONS_C_SRC = $(SRC_DIR)/exceptions.c
-GIC_C_SRC = $(SRC_DIR)/gic.c
-TIMER_C_SRC = $(SRC_DIR)/timer.c
+# Linker script path
+LINKER_SCRIPT_PATH = linker/linker.ld
 
-# Object files (consider putting them in BUILD_DIR)
-# For simplicity, let's keep them in root for now, or use $(BUILD_DIR)/
-BOOT_S_OBJ = boot.o # $(BOOT_S_SRC:.s=.o) would be src/boot.o
-VECTORS_S_OBJ = vectors.o
-UART_S_OBJ = uart.o
-KERNEL_C_OBJ = kernel.o
-EXCEPTIONS_C_OBJ = exceptions.o # New object file
-GIC_C_OBJ = gic.o # New GIC object file
-TIMER_C_OBJ = timer.o # New Timer object file
+# Automatically find source files
+S_SOURCES = $(wildcard $(SRC_DIR)/*.s)
+C_SOURCES = $(wildcard $(SRC_DIR)/*.c)
 
-OBJS = $(BOOT_S_OBJ) $(VECTORS_S_OBJ) $(UART_S_OBJ) $(KERNEL_C_OBJ) $(EXCEPTIONS_C_OBJ) $(GIC_C_OBJ) $(TIMER_C_OBJ)
+# Generate object file names from source files
+# Replace $(SRC_DIR)/%.s with $(OBJ_DIR)/%.o
+S_OBJS = $(patsubst $(SRC_DIR)/%.s, $(OBJ_DIR)/%.o, $(S_SOURCES))
+# Replace $(SRC_DIR)/%.c with $(OBJ_DIR)/%.o
+C_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(C_SOURCES))
 
-# Output files
-ELF = boot.elf
-BIN = boot.bin
-LINKER_SCRIPT = linker.ld
+OBJS = $(S_OBJS) $(C_OBJS)
 
-# Compiler and Assembler Flags
-CFLAGS = -Wall -O0 -g -std=c11 -ffreestanding -nostdlib -I$(INCLUDE_DIR) -mcpu=cortex-a53
-ASFLAGS = -g -I$(INCLUDE_DIR) -mcpu=cortex-a53
-LDFLAGS = -nostdlib -T linker.ld
-LINKER_SCRIPT = linker.ld
+# Final binaries (now in BUILD_DIR)
+ELF_NAME = boot.elf
+BIN_NAME = boot.bin
+ELF = $(BUILD_DIR)/$(ELF_NAME)
+BIN = $(BUILD_DIR)/$(BIN_NAME)
+
+# Flags
+# Common flags for C and Assembly where applicable
+COMMON_FLAGS = -g -I$(INCLUDE_DIR) -mcpu=cortex-a53
+CFLAGS = -Wall -O0 -std=c11 -ffreestanding -nostdlib $(COMMON_FLAGS)
+ASFLAGS = $(COMMON_FLAGS)
+LDFLAGS = -nostdlib -T $(LINKER_SCRIPT_PATH)
+
+# List of directories to create
+DIRS_TO_CREATE = $(BUILD_DIR) $(OBJ_DIR)
 
 # Default target
-all: $(BIN)
+all: $(DIRS_TO_CREATE) $(BIN)
 
-# Build rules
-$(BOOT_S_OBJ): $(BOOT_S_SRC)
-	$(ASM) $(ASFLAGS) -o $@ $<
+# Rule to create directories
+$(DIRS_TO_CREATE):
+	mkdir -p $@
 
-$(VECTORS_S_OBJ): $(VECTORS_S_SRC)
-	$(ASM) $(ASFLAGS) -o $@ $<
+# Pattern rule for .s to .o files
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.s | $(OBJ_DIR)
+	$(AS) $(ASFLAGS) -o $@ $<
 
-$(UART_S_OBJ): $(UART_S_SRC)
-	$(ASM) $(ASFLAGS) -o $@ $<
-
-$(KERNEL_C_OBJ): $(KERNEL_C_SRC) $(INCLUDE_DIR)/kernel.h $(INCLUDE_DIR)/uart.h $(INCLUDE_DIR)/gic.h $(INCLUDE_DIR)/timer.h
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(EXCEPTIONS_C_OBJ): $(EXCEPTIONS_C_SRC) $(INCLUDE_DIR)/exceptions.h $(INCLUDE_DIR)/uart.h
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(GIC_C_OBJ): $(GIC_C_SRC) $(INCLUDE_DIR)/gic.h $(INCLUDE_DIR)/uart.h
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(TIMER_C_OBJ): $(TIMER_C_SRC) $(INCLUDE_DIR)/timer.h $(INCLUDE_DIR)/gic.h $(INCLUDE_DIR)/uart.h
+# Pattern rule for .c to .o files
+# Note: This simplified pattern rule doesn't automatically handle header dependencies.
+# For more robust dependency tracking, C compilers can generate .d (dependency) files.
+# For this project size, a full rebuild after header changes is often acceptable.
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Link to ELF using linker script
-$(ELF): $(OBJS) $(LINKER_SCRIPT)
+$(ELF): $(OBJS) $(LINKER_SCRIPT_PATH) | $(BUILD_DIR)
 	$(LD) $(LDFLAGS) -o $@ $(OBJS)
 
-# Convert ELF to flat binary
-$(BIN): $(ELF)
+# Convert ELF to raw binary
+$(BIN): $(ELF) | $(BUILD_DIR)
 	$(OBJCOPY) -O binary $< $@
 
 # Run in QEMU
 run: $(ELF)
 	timeout 3s qemu-system-aarch64 -machine virt -cpu max -m 64M -nographic -kernel $(ELF)
 
-# Clean build artifacts
+# Clean build files
 clean:
-	rm -f *.o $(ELF) $(BIN) uart.log
+	rm -rf $(BUILD_DIR)
+	rm -f uart.log
+
+.PHONY: all clean run
