@@ -1,118 +1,98 @@
-#include <exceptions.h>
-#include <gic.h>
-#include <stdint.h>
-#include <timer.h>
-#include <uart.h>
+#include "exceptions.h"
 
-// A helper function to print hex values, useful for debugging
-void print_hex(uint64_t val) {
-    char hex_chars[] = "0123456789abcdef";
-    char buffer[19] = "0x";  // "0x" + 16 hex digits + null terminator
-    int i;
-    int current_char = 2;
+#include "common_macros.h"
+#include "gic.h"
+#include "timer.h"
+#include "uart.h"  // <<< ADD THIS LINE
 
-    if (val == 0) {
-        uart_puts("0x0");
-        return;
-    }
+// ... (context_state_t definition if it's here, or include where it is defined)
+// ...
 
-    for (i = 60; i >= 0; i -= 4) {
-        uint64_t nibble = (val >> i) & 0xF;
-        if (nibble != 0 || current_char > 2 ||
-            i == 0)  // Print leading zeros after first non-zero, or if it's
-                     // the last digit
-            buffer[current_char++] = hex_chars[nibble];
-    }
-    buffer[current_char] = '\0';
-    uart_puts(buffer);
+extern void *_exception_vector_table;  // Defined in vectors.s
+
+static volatile uint64_t tick_counter = 0;
+
+void exceptions_init(void) {
+    uart_puts("Address of _exception_vector_table: 0x");
+    print_hex((uintptr_t)&_exception_vector_table);
+    uart_puts("\n");
+    __asm__ __volatile__("msr vbar_el1, %0" : : "r"(&_exception_vector_table));
+    uint64_t vbar_val;
+    __asm__ __volatile__("mrs %0, vbar_el1" : "=r"(vbar_val));
+    uart_puts("VBAR_EL1 set to: 0x");
+    print_hex(vbar_val);
+    uart_puts("\n");
 }
 
-// Helper function to print an unsigned 64-bit integer in decimal
-// Note: This is a simple implementation. For very large numbers, it might be
-// slow or could overflow the buffer if not careful. Max uint64_t is 20 digits.
-void print_uint(uint64_t val) {
-    char buffer[21];  // Max 20 digits for uint64_t + null terminator
-    int i = 20;
-    buffer[i--] = '\0';
-
-    if (val == 0) {
-        uart_puts("0");
-        return;
-    }
-
-    while (val > 0 && i >= 0) {
-        buffer[i--] = (val % 10) + '0';
-        val /= 10;
-    }
-    uart_puts(&buffer[i + 1]);
-}
-
-void c_sync_handler(trap_frame_t *frame) {
-    uint64_t esr_el1;
-    // Read ESR_EL1 to find out the cause of the exception
-    // Use __asm__ instead of asm
-    __asm__ volatile("mrs %0, esr_el1" : "=r"(esr_el1));
-
-    uart_puts("C Synchronous Handler Reached!\n");
-    uart_puts("  SPSR_EL1: ");
-    print_hex(frame->spsr_el1);
-    uart_puts("\n");
-    uart_puts("  ELR_EL1:  ");
-    print_hex(frame->elr_el1);
-    uart_puts("\n");
-    uart_puts("  ESR_EL1:  ");
+// Synchronous exception handler
+// Called from assembly with: x0=esr_el1, x1=elr_el1, x2=ctx_ptr (sp)
+void c_sync_handler(uint64_t esr_el1, uint64_t elr_el1, context_state_t *ctx) {
+    uart_puts("\n--- Synchronous Exception ---\n");
+    uart_puts("ESR_EL1: 0x");
     print_hex(esr_el1);
     uart_puts("\n");
-
-    // Decode ESR_EL1 (Exception Class and ISS)
-    uint32_t ec = (esr_el1 >> 26) & 0x3F;  // Exception Class, bits 31:26
-    // uint32_t iss = esr_el1 & 0x1FFFFFF;  // Instruction Specific Syndrome,
-    // bits 24:0
-
-    uart_puts("  Exception Class (EC): ");
-    print_hex(ec);
+    uart_puts("ELR_EL1: 0x");
+    print_hex(elr_el1);
     uart_puts("\n");
 
-    if (ec == 0x15) {  // 0x15 is SVC instruction execution in AArch64 state
-        uart_puts("  Reason: SVC Instruction\n");
-        // uint16_t imm = iss & 0xFFFF; // For SVC, ISS bits 15:0 can be an
-        // immediate uart_puts("  SVC Immediate: "); print_hex(imm);
-        // uart_puts("\n");
-    } else {
-        uart_puts("  Reason: Other synchronous exception\n");
+    uint32_t ec = (esr_el1 >> 26) & 0x3F;  // Extract Exception Class (EC)
+    uart_puts("Exception Class (EC): 0x");
+    print_hex(ec);
+    // You can add a switch statement here to decode common EC values
+    switch (ec) {
+        case 0b010101:  // SVC instruction execution in AArch64 state
+            uart_puts(" (SVC instruction)\n");
+            // uint16_t imm = esr_el1 & 0xFFFF; // Extract immediate value for
+            // SVC uart_puts("SVC immediate: "); print_uint(imm);
+            // uart_puts("\n");
+            break;
+        case 0b100100:  // Data Abort from lower Exception level
+        case 0b100101:  // Data Abort from same Exception level
+            uart_puts(" (Data Abort)\n");
+            // uint64_t far_el1;
+            // __asm__ __volatile__("mrs %0, far_el1" : "=r"(far_el1));
+            // uart_puts("FAR_EL1: 0x"); print_hex(far_el1); uart_puts("\n");
+            break;
+        // Add more cases as needed
+        default:
+            uart_puts(" (Unknown EC)\n");
+            break;
     }
 
-    // For now, hang here. In a real OS, you might terminate the process or take
-    // other action.
-    uart_puts("Halting in C handler.\n");
-    while (1);
+    uart_puts("System Halted.\n");
+    while (1);  // Halt
 }
 
-static volatile uint64_t tick_counter = 0;  // Our new global tick counter
+void c_irq_handler(context_state_t *ctx) {
+    uint32_t iar_val = gic_read_iar();
+    uint32_t actual_irq_id = iar_val & 0x3FF;
 
-void c_irq_handler(trap_frame_t *frame) {
-    (void)frame;
-
-    uint32_t irq_id = gic_read_iar();
-
-    if (irq_id == 1023) {
-        uart_puts("Spurious IRQ received (ID 1023).\n");
-        gic_write_eoir(irq_id);
+    if (actual_irq_id == 1023) {
+        // uart_puts("Spurious IRQ (ID 1023) received.\n");  // Optional: can be
+        // noisy
         return;
     }
 
-    if (irq_id == TIMER_IRQ_ID) {
+    if (actual_irq_id == TIMER_IRQ_ID) {
         handle_timer_irq();
         tick_counter++;
-        uart_puts("Timer Tick: ");
-        print_uint(tick_counter);
-        uart_puts("\n");
+        if ((tick_counter % 100) ==
+            0) {  // Print every 100 ticks (1 second if 10ms interval)
+            uart_puts("Timer Tick: ");
+            print_uint(tick_counter);
+            uart_puts("\n");
+        }
     } else {
         uart_puts("Unknown IRQ received! ID: ");
-        print_uint(irq_id);  // Use print_uint for the unknown ID
-        uart_puts("\nHalting.\n");
+        print_uint(actual_irq_id);
+        uart_puts("\nHalting due to unknown IRQ.\n");
+        gic_write_eoir(iar_val);
         while (1);
     }
-
-    gic_write_eoir(irq_id);
+    gic_write_eoir(iar_val);
 }
+
+// void minimal_irq_print(void) { uart_puts("minimal_irq_print called!\n"); } //
+// <<< REMOVE UNUSED
+void minimal_fiq_print(void) { uart_puts("minimal_fiq_print called!\n"); }
+void minimal_serror_print(void) { uart_puts("minimal_serror_print called!\n"); }
