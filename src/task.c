@@ -9,13 +9,17 @@
 // Define global task management variables from task.h
 tcb_t task_table[MAX_TASKS];
 tcb_t *current_task = NULL;
-uint32_t next_pid = 0;  // Initialize PID counter
+uint32_t next_pid = 0;
 tcb_t *ready_queue_head = NULL;
+tcb_t *idle_task_tcb = NULL;
 
 // Statically allocated stacks for simplicity
 static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE]
     __attribute__((aligned(16)));
-static uint32_t next_stack_idx = 0;
+// static uint32_t next_stack_idx = 0; // This is now managed by
+// task_stacks_status
+uint8_t
+    task_stacks_status[MAX_TASKS];  // 0 for free, 1 for used. Define it here.
 
 // A simple memset (if not available from a standard library equivalent)
 void simple_memset(void *ptr, int value, uint64_t num) {
@@ -40,7 +44,9 @@ void task_init_system(void) {
     current_task = NULL;  // No task is running initially
     ready_queue_head = NULL;
     next_pid = 0;
-    next_stack_idx = 0;
+    // next_stack_idx = 0; // Not needed if using task_stacks_status
+    simple_memset(task_stacks_status, 0,
+                  sizeof(task_stacks_status));  // Initialize all stacks as free
 
     // The kernel itself runs in an implicit "task 0" context before scheduling
     // starts. We might create an explicit "idle" task later.
@@ -48,24 +54,19 @@ void task_init_system(void) {
 }
 
 // Function to allocate a stack from the static pool
-// Returns NULL if no stacks are available.
-static uint8_t *allocate_static_stack(void) {
-    // This critical section should ideally be protected if tasks could be
-    // created concurrently For now, assuming task creation is serialized or
-    // happens before scheduler starts fully. disable_interrupts(); // Example
-    // of protection
-    if (next_stack_idx < MAX_TASKS) {
-        uint8_t *stack_ptr = task_stacks[next_stack_idx];
-        next_stack_idx++;
-        // enable_interrupts(); // Restore interrupts
-        uart_puts("Allocated stack at index: ");
-        print_uint(next_stack_idx - 1);
-        uart_puts("\n");
-        return stack_ptr;
+// Returns stack index on success, -1 on failure.
+static int allocate_static_stack(void) {  // Changed return type to int
+    for (int i = 0; i < MAX_TASKS; ++i) {
+        if (task_stacks_status[i] == 0) {
+            task_stacks_status[i] = 1;  // Mark as used
+            uart_puts("Allocated stack at index: ");
+            print_uint(i);
+            uart_puts("\n");
+            return i;  // Return the index
+        }
     }
-    // enable_interrupts(); // Restore interrupts
     uart_puts("Error: No more static stacks available!\n");
-    return NULL;
+    return -1;  // No stack available
 }
 
 // Create a new task
@@ -92,20 +93,25 @@ int task_create(void (*entry_point)(void *arg), void *arg, const char *name) {
         return -1;  // No free TCBs
     }
 
-    uint8_t *stack_memory = allocate_static_stack();
-    if (!stack_memory) {
+    int stack_idx = allocate_static_stack();  // Get stack index
+    if (stack_idx < 0) {                      // Check for failure
         uart_puts("Error: Failed to allocate stack for new task!\n");
+        new_tcb->state = TASK_UNUSED;  // Release TCB if stack allocation failed
         // enable_interrupts();
-        return -1;  // No stack memory
+        return -1;
     }
+    uint8_t *stack_memory =
+        task_stacks[stack_idx];  // Get stack pointer from index
 
     // Initialize the TCB
-    new_tcb->pid = next_pid++;
-    new_tcb->state = TASK_READY;  // Set to ready, not running yet
-    new_tcb->stack_base =
-        (uint64_t *)stack_memory;  // Base of the allocated memory
+    new_tcb->pid =
+        next_pid++;  // Assuming PIDs are assigned sequentially and might not
+                     // match task_table index directly If PID is meant to be
+                     // the index, then new_tcb->pid = i;
+    new_tcb->state = TASK_READY;
+    new_tcb->stack_base = (uint64_t *)stack_memory;
     new_tcb->stack_size = TASK_STACK_SIZE;
-    // new_tcb->name = name; // If you add a name field to TCB
+    new_tcb->stack_idx = (uint8_t)stack_idx;  // Store the allocated stack index
 
     // Now, set up the initial stack frame for the new task.
     // The stack grows downwards. The "top" of the stack is at the highest
@@ -184,6 +190,31 @@ int task_create(void (*entry_point)(void *arg), void *arg, const char *name) {
     return new_tcb->pid;
 }
 
+void task_exit(void) {
+    if (current_task &&
+        current_task != idle_task_tcb) {  // Idle task should not exit
+        uart_puts("Task PID ");
+        print_uint(current_task->pid);
+        uart_puts(" calling task_exit(). Setting state to ZOMBIE.\n");
+        current_task->state = TASK_ZOMBIE;
+
+        // The task will now spin here. The next timer interrupt will trigger
+        // the scheduler. The scheduler will see its ZOMBIE state, clean it up,
+        // and pick another task. This task will not run again.
+        while (1) {
+            __asm__ __volatile__(
+                "wfi");  // Wait for interrupt to be descheduled
+        }
+    } else if (current_task == idle_task_tcb) {
+        uart_puts("Error: Idle task attempted to exit!\n");
+        // Idle task should loop forever.
+    } else {
+        uart_puts(
+            "Error: task_exit() called with no current_task or invalid "
+            "task!\n");
+    }
+}
+
 // Add a task to the end of the ready queue (FIFO)
 void add_to_ready_queue(tcb_t *task) {
     if (!task) {
@@ -231,66 +262,78 @@ tcb_t *get_next_ready_task(void) {
 //                      pointing to its saved context_state_t.
 // Returns: The kernel_sp of the next task to run.
 uint64_t schedule(uint64_t current_task_sp_val) {
-    // uart_puts("Scheduler entered.\n"); // Keep this for debugging if you like
-
     tcb_t *previous_task = current_task;
 
-    // 1. Save the context of the previously running task (if any)
-    if (previous_task != NULL) {
-        previous_task->kernel_sp = current_task_sp_val;
-        if (previous_task->state ==
-            TASK_RUNNING) {  // Only re-queue if it was running
-            previous_task->state = TASK_READY;
-            add_to_ready_queue(previous_task);  // Uses the real function now
-            // uart_puts("Task PID "); print_uint(previous_task->pid);
-            // uart_puts(" moved to ready queue.\n");
+    // Handle ZOMBIE task cleanup first
+    if (previous_task != NULL && previous_task->state == TASK_ZOMBIE &&
+        previous_task != idle_task_tcb) {
+        uart_puts("Scheduler: Cleaning up ZOMBIE task PID ");
+        print_uint(previous_task->pid);
+        uart_puts(".\n");
+
+        // Mark TCB as unused (assuming PID is the index in task_table)
+        // If PIDs are not direct indices, you'd need to find the TCB in
+        // task_table by PID.
+        task_table[previous_task->pid].state = TASK_UNUSED;
+
+        // Mark stack as free
+        if (previous_task->stack_idx < MAX_TASKS) {  // Basic bounds check
+            task_stacks_status[previous_task->stack_idx] = 0;
+        } else {
+            uart_puts("Scheduler: Invalid stack_idx for zombie task PID ");
+            print_uint(previous_task->pid);
+            uart_puts("\n");
         }
-    } else {
-        // uart_puts("Scheduler: No previous task (current_task is NULL).
-        // Initial schedule.\n");
+
+        // Optionally: Clear other TCB fields, add PID to a free PID list for
+        // reuse. For now, we just mark as UNUSED.
+
+        if (current_task == previous_task) {
+            current_task = NULL;  // This task is gone.
+        }
+        previous_task = NULL;  // Don't process this zombie task further (for
+                               // saving SP or re-queuing).
     }
 
-    // 2. Select the next task to run
-    tcb_t *next_task = get_next_ready_task();  // Uses the real function now
-
-    if (next_task == NULL) {
-        // No tasks in the ready queue.
-        // uart_puts("Scheduler: Ready queue is empty.\n");
-        if (previous_task != NULL && previous_task->state != TASK_BLOCKED &&
-            previous_task->state != TASK_ZOMBIE) {
-            // If there was a previous task and it's still viable (e.g. not
-            // blocked), let it run again. This handles the case of a single
-            // task running. uart_puts("Scheduler: Resuming previous task PID
-            // "); print_uint(previous_task->pid); uart_puts(" as no other tasks
-            // are ready.\n");
-            current_task = previous_task;
-        } else {
-            // Truly no task to run, and no viable previous task.
-            // This is where an idle task would be essential.
-            // For now, returning current_task_sp_val will continue
-            // kernel_main's WFI loop or whatever was running before the
-            // interrupt. uart_puts("Scheduler: No tasks to run and no viable
-            // previous task! Returning original SP.\n");
-            current_task = NULL;  // Explicitly no current task
-            return current_task_sp_val;
+    // Save context of the (non-zombie) previously running task
+    if (previous_task != NULL && previous_task != idle_task_tcb) {
+        previous_task->kernel_sp = current_task_sp_val;
+        if (previous_task->state ==
+            TASK_RUNNING) {  // Only re-queue if it was running and not a zombie
+            previous_task->state = TASK_READY;
+            add_to_ready_queue(previous_task);
         }
+    } else if (previous_task == idle_task_tcb) {
+        idle_task_tcb->kernel_sp = current_task_sp_val;
+    } else if (previous_task == NULL && current_task != NULL) {
+        // This case might occur if current_task was set to NULL due to zombie
+        // cleanup and there was no *other* previous_task. Essentially, the
+        // initial state or post-zombie state.
+    }
+
+    tcb_t *next_task = get_next_ready_task();
+
+    if (next_task == NULL) {  // Ready queue is empty
+        if (!idle_task_tcb) {
+            uart_puts("FATAL: Idle task TCB is NULL! Halting.\n");
+            while (1) __asm__ __volatile__("wfi");
+        }
+        current_task = idle_task_tcb;
     } else {
-        // A new task was found in the ready queue
         current_task = next_task;
     }
 
-    // 3. Update current_task state (if a task is chosen)
     if (current_task != NULL) {
         current_task->state = TASK_RUNNING;
-        // uart_puts("Scheduler: Switching to task PID ");
-        // print_uint(current_task->pid); uart_puts(" with SP: 0x");
-        // print_hex(current_task->kernel_sp); uart_puts("\n");
         return current_task->kernel_sp;
     } else {
-        // This case should ideally be handled by an idle task.
-        // If current_task is NULL here, it means next_task was NULL and
-        // previous_task was not viable. uart_puts("Scheduler: Fallthrough - no
-        // current task, returning original SP.\n");
-        return current_task_sp_val;  // Should be SP of kernel_main context
+        // This should only be reached if idle_task_tcb was somehow NULL and
+        // ready queue was empty.
+        uart_puts(
+            "FATAL: current_task is NULL after scheduling decision! Returning "
+            "original SP.\n");
+        // This might return to kernel_main's WFI or whatever was running before
+        // the interrupt.
+        return current_task_sp_val;
     }
 }  // This should be the only closing brace for the function.

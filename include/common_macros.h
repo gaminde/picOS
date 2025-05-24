@@ -20,6 +20,10 @@
 // We are using the EL1 Physical Timer, so ID 30.
 #define INTERRUPT_ID_CNTPNSIRQ 30  // EL1 Physical Timer IRQ ID
 
+// Task related macros
+#define MAX_TASKS 16          // Maximum number of tasks in the system
+#define TASK_STACK_SIZE 4096  // Stack size for each task in bytes (e.g., 4KB)
+
 // Other common macros can go here
 
 #endif  // COMMON_MACROS_H

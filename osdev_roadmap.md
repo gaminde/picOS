@@ -83,32 +83,32 @@ Completed items reflect the current status of the picOS project.
 
 ## Phase 3: Concurrency & Scheduling
 
-*   [ ] **Define Task/Process Concept:**
-    *   [ ] What constitutes a task in your OS.
-*   [ ] **Design Task Control Block (TCB) / Process Control Block (PCB):**
-    *   [ ] `struct` to store task state:
-        *   [ ] Saved registers (GPRs, `SP_ELx`, `ELR_EL1`, `SPSR_EL1`).
-        *   [ ] Task ID (PID).
-        *   [ ] Task state (e.g., `RUNNING`, `READY`, `BLOCKED`, `ZOMBIE`).
-        *   [ ] Pointer to task's stack.
+*   [x] **Define Task/Process Concept:**
+    *   [x] What constitutes a task in your OS.
+*   [x] **Design Task Control Block (TCB) / Process Control Block (PCB):**
+    *   [x] `struct` to store task state:
+        *   [x] Saved registers (GPRs, `SP_ELx`, `ELR_EL1`, `SPSR_EL1`).
+        *   [x] Task ID (PID).
+        *   [x] Task state (e.g., `RUNNING`, `READY`, `BLOCKED`, `ZOMBIE`).
+        *   [x] Pointer to task's stack.
         *   [ ] Pointer to task's page table (if per-task virtual memory - to be added in Phase 4).
         *   [ ] (Optional) Priority, scheduling information, IPC resources.
-*   [ ] **Implement Task Creation & Initialization:**
-    *   [ ] Function to allocate TCB and stack.
-    *   [ ] Initialize the saved context on the new task's stack to start execution at a specific function.
-*   [ ] **Implement Context Switching:**
-    *   [ ] Assembly routines to save the current task's context to its TCB.
-    *   [ ] Assembly routines to restore the next task's context from its TCB.
-*   [ ] **Develop a Scheduler:**
-    *   [ ] Data structure for ready tasks (e.g., run queue, linked list).
-    *   [ ] Scheduling algorithm (e.g., round-robin, priority-based).
-    *   [ ] `schedule()` function to select the next task to run.
-*   [ ] **Integrate Scheduler with Timer Interrupt:**
-    *   [ ] Call `schedule()` from the timer interrupt handler to enable preemption.
+*   [x] **Implement Task Creation & Initialization:**
+    *   [x] Function to allocate TCB and stack.
+    *   [x] Initialize the saved context on the new task's stack to start execution at a specific function.
+*   [x] **Implement Context Switching:**
+    *   [x] Assembly routines to save the current task's context to its TCB.
+    *   [x] Assembly routines to restore the next task's context from its TCB.
+*   [x] **Develop a Scheduler:**
+    *   [x] Data structure for ready tasks (e.g., run queue, linked list).
+    *   [x] Scheduling algorithm (e.g., round-robin, priority-based).
+    *   [x] `schedule()` function to select the next task to run.
+*   [x] **Integrate Scheduler with Timer Interrupt:**
+    *   [x] Call `schedule()` from the timer interrupt handler to enable preemption.
 *   [ ] **Implement Basic Synchronization Primitives (Optional for early stages):**
     *   [ ] Spinlocks.
     *   [ ] Semaphores/Mutexes (requires blocking/unblocking tasks).
-*   [ ] **Task Termination and Cleanup.**
+*   [x] **Task Termination and Cleanup.**
 
 ## Phase 4: Memory Management
 
