@@ -46,5 +46,10 @@ end_loop:
 
 .global enable_interrupts
 enable_interrupts:
-    msr daifclr, #2 // Clear IRQ mask bit
+    msr daifclr, #2 // Clear IRQ mask bit (I bit in PSTATE/DAIF)
+    ret
+
+.global disable_interrupts
+disable_interrupts:
+    msr daifset, #2 // Set IRQ mask bit (I bit in PSTATE/DAIF)
     ret

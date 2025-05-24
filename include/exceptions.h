@@ -4,10 +4,15 @@
 #include <stdint.h>
 
 // Structure to hold the saved processor state during an exception.
-// This must match the order and number of registers saved by the
-// 'save_all_regs' macro in vectors.s.
+// This must match the order of registers pushed onto the stack by vectors.s
+// The 'sp' passed to C handlers will point to the beginning of this structure.
 typedef struct {
+    // System registers saved first by the extended exception entry
+    uint64_t spsr_el1;
+    uint64_t elr_el1;
+
     // General-purpose registers x0-x29, then lr (x30)
+    // This order must match the save_gprs_lr macro.
     uint64_t x0;
     uint64_t x1;
     uint64_t x2;
@@ -39,12 +44,6 @@ typedef struct {
     uint64_t x28;
     uint64_t x29;
     uint64_t lr;  // x30 (Link Register)
-
-    // Note: SPSR_EL1 and ELR_EL1 are not part of this struct as saved by
-    // the current 'save_all_regs' macro. They are handled separately
-    // (e.g., passed as direct arguments to c_sync_handler).
-    // If you modify 'save_all_regs' to push them, add them here in the correct
-    // order. uint64_t spsr_el1; uint64_t elr_el1;
 } context_state_t;
 
 // Function declarations
@@ -54,8 +53,11 @@ void disable_interrupts(
     void);  // Disables IRQs (e.g., msr daifset, #2) - if you have it
 
 // C handlers for exceptions (called from assembly)
-void c_sync_handler(uint64_t esr, uint64_t elr, context_state_t *ctx);
-void c_irq_handler(context_state_t *ctx);
-void c_serror_handler(uint64_t esr, uint64_t elr);
+void c_sync_handler(uint64_t esr_el1,
+                    context_state_t *ctx);     // Pass ESR_EL1 explicitly
+uint64_t c_irq_handler(context_state_t *ctx);  // c_irq_handler now returns the
+                                               // SP of the next task to run
+void minimal_fiq_print(void);
+void minimal_serror_print(void);
 
 #endif  // EXCEPTIONS_H

@@ -10,7 +10,8 @@
         // LINE EXISTS
 
 // Function to initialize the EL1 Physical Timer
-void timer_init(uint32_t interval_ms);
+// void timer_init(void);  // Remove or comment out this conflicting declaration
+void timer_init_periodic(uint64_t interval_ticks);  // For periodic timer
 
 // Function to handle the timer interrupt
 // This is the C part, called from the main IRQ handler

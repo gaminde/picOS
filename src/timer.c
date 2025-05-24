@@ -52,4 +52,20 @@ void timer_init(uint32_t interval_ms) {
     uart_puts("Timer IRQ enabling attempt complete.\n");
 }
 
+void timer_init_periodic(uint64_t interval_ticks) {
+    TIMER_INTERVAL_TICKS = interval_ticks;
+
+    write_cntp_tval_el0(interval_ticks);
+
+    __asm__ __volatile__("msr cntp_ctl_el0, %0" ::"r"((uint64_t)0x1));
+    uint64_t ctl_val_check = read_cntp_ctl_el0();
+    uart_puts("EL1 Physical Timer Initialized and Enabled. CNTP_CTL_EL0: 0x");
+    print_hex(ctl_val_check);
+    uart_puts("\n");
+
+    uart_puts("Enabling timer IRQ in GIC...\n");
+    gic_enable_interrupt(TIMER_IRQ_ID, 0x01, 0xA0);
+    uart_puts("Timer IRQ enabling attempt complete.\n");
+}
+
 void handle_timer_irq(void) { write_cntp_tval_el0(TIMER_INTERVAL_TICKS); }

@@ -1,79 +1,106 @@
-#include <stdint.h>
+#include "kernel.h"
 
-#include "common_macros.h"  // For KERNEL_TIMER_INTERVAL_MS
-#include "exceptions.h"     // For exceptions_init
-#include "gic.h"            // For gic_init
-#include "task.h"           // For task_init_system
-#include "timer.h"          // For timer_init
+#include "exceptions.h"
+#include "gic.h"
+#include "task.h"
+#include "timer.h"  // Make sure this is included
 #include "uart.h"
 
-// External function to enable interrupts (defined in boot.S or similar)
-extern void enable_interrupts(void);
-// External function to disable interrupts (defined in boot.S or similar)
-// extern void disable_interrupts(void); // If you have one
+// Simple task function 1
+void simple_task_1(void *arg) {
+    uint32_t task_id = (uint32_t)(uint64_t)arg;  // Retrieve the argument
+    uint64_t counter = 0;
+
+    uart_puts("Task ");
+    print_uint(task_id);
+    uart_puts(" started.\n");
+
+    while (1) {
+        uart_puts("Task ");
+        print_uint(task_id);
+        uart_puts(" says: Hello! Count: ");
+        print_uint(counter++);
+        uart_puts("\n");
+
+        // Simple delay loop (very approximate)
+        for (volatile int i = 0; i < 10000000; ++i) {
+            // Do nothing, just burn CPU cycles
+        }
+        // In a real scenario, tasks would yield or block on events.
+    }
+}
+
+// Simple task function 2
+void simple_task_2(void *arg) {
+    uint32_t task_id = (uint32_t)(uint64_t)arg;  // Retrieve the argument
+    uint64_t counter = 0;
+
+    uart_puts("Task ");
+    print_uint(task_id);
+    uart_puts(" started.\n");
+
+    while (1) {
+        uart_puts("Task ");
+        print_uint(task_id);
+        uart_puts(" says: World! Count: ");
+        print_uint(counter++);
+        uart_puts("\n");
+
+        // Simple delay loop
+        for (volatile int i = 0; i < 15000000; ++i) {
+            // Do nothing
+        }
+    }
+}
 
 void kernel_main(void) {
     uart_init();
-    uart_puts("picOS Kernel Initializing...\n");
+    uart_puts("\n-----------------------------------\n");
+    uart_puts("picOS Kernel (AArch64) Booting...\n");
+    uart_puts("-----------------------------------\n");
 
-    exceptions_init();  // Initialize exception vector table
-    gic_init();         // Initialize GIC
-    timer_init(
-        KERNEL_TIMER_INTERVAL_MS);  // Initialize timer, e.g., for 10ms interval
-    task_init_system();   // Initialize tasking system (placeholders for now)
-    enable_interrupts();  // Clears PSTATE.I bit, enabling IRQs/FIQs
+    exceptions_init();
+    gic_init();
+    timer_init_periodic(1000000);  // 1 second timer (1MHz clock, 1M ticks)
+    task_init_system();
 
-    // uart_puts("Entering diagnostic loop to check timer ISTATUS and GIC
-    // state...\n"); // <<< REMOVE THIS LINE uint32_t loop_count = 0; // <<<
-    // REMOVE THIS LINE const uint32_t max_loops = 5; // <<< REMOVE THIS LINE
+    uart_puts("Creating tasks...\n");
+    int pid1 = task_create(simple_task_1, (void *)1, "Task1");
+    if (pid1 < 0) {
+        uart_puts("Failed to create task 1\n");
+    } else {
+        uart_puts("Task 1 created with PID: ");
+        print_uint(pid1);
+        uart_puts("\n");
+    }
 
-    // while(loop_count < max_loops) { // <<< REMOVE THIS BLOCK
-    //     uint64_t ctl_val = read_cntp_ctl_el0(); // <<< REMOVE THIS BLOCK if
-    //     (ctl_val & 0x4) { // Check ISTATUS bit (bit 2) // <<< REMOVE THIS
-    //     BLOCK
-    //         uart_puts("--- Timer ISTATUS IS SET! CNTP_CTL_EL0: 0x");
-    //         print_hex(ctl_val); uart_puts(" ---\n"); // <<< REMOVE THIS BLOCK
+    int pid2 = task_create(simple_task_2, (void *)2, "Task2");
+    if (pid2 < 0) {
+        uart_puts("Failed to create task 2\n");
+    } else {
+        uart_puts("Task 2 created with PID: ");
+        print_uint(pid2);
+        uart_puts("\n");
+    }
 
-    //         uint32_t gicd_isenabler0_val = mmio_read(GICD_BASE +
-    //         GICD_ISENABLERn_OFFSET); // <<< REMOVE THIS BLOCK uart_puts("
-    //         GICD_ISENABLER0: 0x"); print_hex(gicd_isenabler0_val);     // <<<
-    //         REMOVE THIS BLOCK if (gicd_isenabler0_val & (1U << TIMER_IRQ_ID))
-    //         {                       // <<< REMOVE THIS BLOCK
-    //             uart_puts(" (IRQ 30 ENABLED in GICD)\n"); // <<< REMOVE THIS
-    //             BLOCK
-    //         } else { // <<< REMOVE THIS BLOCK
-    //             uart_puts(" (IRQ 30 NOT enabled in GICD) <<-- PROBLEM!\n");
-    //             // <<< REMOVE THIS BLOCK
-    //         } // <<< REMOVE THIS BLOCK
+    uart_puts(
+        "All tasks created. Enabling interrupts and starting scheduler "
+        "(conceptually).\n");
+    enable_interrupts();  // Enable interrupts globally (for timer)
 
-    //         uint32_t gicd_ispendr0_val = mmio_read(GICD_BASE +
-    //         GICD_ISPENDRn_OFFSET); // <<< REMOVE THIS BLOCK uart_puts("
-    //         GICD_ISPENDR0: 0x"); print_hex(gicd_ispendr0_val);         // <<<
-    //         REMOVE THIS BLOCK if (gicd_ispendr0_val & (1U << TIMER_IRQ_ID)) {
-    //         // <<< REMOVE THIS BLOCK
-    //             uart_puts(" (IRQ 30 PENDING in GICD)\n"); // <<< REMOVE THIS
-    //             BLOCK
-    //         } else { // <<< REMOVE THIS BLOCK
-    //             uart_puts(" (IRQ 30 NOT pending in GICD)\n"); // <<< REMOVE
-    //             THIS BLOCK
-    //         } // <<< REMOVE THIS BLOCK
+    // At this point, the tasks are in the ready queue.
+    // The scheduler isn't running yet, so they won't execute.
+    // The first timer interrupt will trigger c_irq_handler.
+    // We need to modify c_irq_handler to call schedule().
+    // And schedule() needs to pick a task and set it as current_task.
+    // The very first context switch will happen when schedule() is first called
+    // and it switches from the implicit kernel_main "task" to one of the
+    // created tasks.
 
-    //         uint32_t gicc_hppir_val = mmio_read(GICC_BASE + GICC_HPPIR); //
-    //         <<< REMOVE THIS BLOCK uart_puts("  GICC_HPPIR: 0x");
-    //         print_hex(gicc_hppir_val);               // <<< REMOVE THIS BLOCK
-    //         uart_puts(" (IRQ ID: "); print_uint(gicc_hppir_val & 0x3FF);
-    //         uart_puts(")\n"); // <<< REMOVE THIS BLOCK
-    //     } else { // <<< REMOVE THIS BLOCK
-    //         // uart_puts("--- Timer ISTATUS is NOT set. CNTP_CTL_EL0: 0x");
-    //         print_hex(ctl_val); uart_puts(" ---\n"); // <<< REMOVE THIS BLOCK
-    //     } // <<< REMOVE THIS BLOCK for(volatile int i=0; i<1000000; ++i); //
-    //     Simple delay                      // <<< REMOVE THIS BLOCK
-    //     loop_count++; // <<< REMOVE THIS BLOCK
-    // } // <<< REMOVE THIS BLOCK uart_puts("Diagnostic checks complete.\n"); //
-    // <<< REMOVE THIS LINE
-
-    uart_puts("Entering WFI loop...\n");
+    // For now, kernel_main will just idle. The timer interrupts will fire.
+    // Once schedule() is implemented and called, we should see task output.
+    uart_puts("Kernel entering idle loop (WFI). Tasks are ready.\n");
     while (1) {
-        __asm__ __volatile__("wfi");  // Wait For Interrupt
+        __asm__ __volatile__("wfi");  // Wait for interrupt
     }
 }
